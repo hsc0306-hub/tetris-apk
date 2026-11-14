@@ -71,7 +71,7 @@ body.land #vk [data-a=D]{grid-column:1/3;width:100%}
 .ri .c{font:12px monospace;color:#a9b2d8;margin-top:2px}
 #chatBtn{position:relative}
 #chatBadge{display:none;background:var(--red);color:#fff;border-radius:9px;font-size:11px;padding:1px 6px;margin-left:4px}
-#chat{display:none;position:fixed;left:0;right:0;bottom:var(--kb,0px);max-width:560px;margin:0 auto;background:#141935;border:2px solid var(--ac);border-bottom:0;border-radius:14px 14px 0 0;z-index:30;padding:8px;flex-direction:column;gap:6px;box-shadow:0 -6px 20px rgba(0,0,0,.5)}
+#chat{display:none;position:fixed;left:0;right:0;bottom:var(--kb,0px);padding-bottom:calc(8px + env(safe-area-inset-bottom,0px)) !important;max-width:560px;margin:0 auto;background:#141935;border:2px solid var(--ac);border-bottom:0;border-radius:14px 14px 0 0;z-index:30;padding:8px;flex-direction:column;gap:6px;box-shadow:0 -6px 20px rgba(0,0,0,.5)}
 #chat.open{display:flex}
 #chat .ch{display:flex;justify-content:space-between;align-items:center}
 #chat .ch button{padding:4px 10px;font-size:14px}
@@ -480,12 +480,19 @@ $('joinBtn').onclick=()=>{
 $('codeIn').addEventListener('keydown',e=>{if(e.key==='Enter')$('joinBtn').click()});
 
 addEventListener('pagehide',()=>{try{myRoom&&dirSend({t:'unreg',code:myRoom.code})}catch(e){}try{conn&&conn.close()}catch(e){}try{peer&&peer.destroy()}catch(e){}try{dirPeer&&dirPeer.destroy()}catch(e){}try{hubPeer&&hubPeer.destroy()}catch(e){}});
-document.addEventListener('visibilitychange',()=>{lastRx=performance.now()});
+document.addEventListener('visibilitychange',()=>{
+  lastRx=performance.now();
+  if(document.visibilityState==='visible'){
+    try{if(hubPeer&&hubPeer.disconnected)hubPeer.reconnect()}catch(e){}
+    if(!hubPeer&&!(dirConn&&dirConn.open)&&dirStarted&&!dirStopped){dirT0=Date.now();dirRetry(0)}
+  }
+});
 
 /* ---------- 방 목록 ----------
    별도 서버가 없으므로, 접속 중인 브라우저 하나가 '목록 서버(허브)' 역할을 맡습니다.
    허브가 없으면 먼저 접속한 사람이 자동으로 허브가 되고, 허브가 나가면 다른 사람이 이어받습니다. */
-const HUB_ID=PFX+'hub-v1';
+const HUB_ID=PFX+'hub-v1';const SLOTS=4;let hubSlot=0,slotFails=0;
+const hubId=i=>i?HUB_ID+'-'+i:HUB_ID;
 let hubPeer=null,dirPeer=null,dirConn=null,dirRetryT=null,dirStopped=false,dirStarted=false,claiming=false;
 let dirState='connecting',dirT0=Date.now(),myRoom=null,rooms=[],lastRoomsKey='';
 const registry=new Map();
@@ -523,7 +530,7 @@ function setRoomFull(f){if(myRoom){myRoom.full=f;dirSend(regMsg())}}
 function claimHub(){
   if(hubPeer||dirStopped||claiming)return;
   claiming=true;
-  const hp=new Peer(HUB_ID);
+  const hp=new Peer(hubId(hubSlot));
   hp.on('open',()=>{
     claiming=false;
     if(dirStopped){try{hp.destroy()}catch(e){}return}
@@ -538,8 +545,13 @@ function claimHub(){
     c.on('close',()=>{registry.forEach((r,k)=>{if(r.c===c)registry.delete(k)})});
   });
   hp.on('disconnected',()=>{try{hp.reconnect()}catch(e){}});
-  hp.on('error',()=>{
-    if(!hubPeer){claiming=false;try{hp.destroy()}catch(e){}dirRetry()}
+  hp.on('error',err=>{
+    if(!hubPeer){
+      claiming=false;try{hp.destroy()}catch(e){}
+      /* 같은 번호의 허브가 계속 연결도 안 되고 차지도 못 하면 죽은 허브로 보고 다음 번호로 */
+      if(err&&err.type==='unavailable-id'&&++slotFails>=2){slotFails=0;hubSlot=(hubSlot+1)%SLOTS}
+      dirRetry();
+    }
   });
 }
 function dirConnect(){
@@ -549,12 +561,12 @@ function dirConnect(){
   const p=dirPeer=new Peer();
   p.on('open',()=>{
     if(p!==dirPeer)return;
-    const c=p.connect(HUB_ID,{serialization:'json',reliable:true});
+    const c=p.connect(hubId(hubSlot),{serialization:'json',reliable:true});
     dirConn=c;
-    const to=setTimeout(()=>{if(c===dirConn&&!c.open)dirRetry()},8000);
+    const to=setTimeout(()=>{if(c===dirConn&&!c.open){try{p.destroy()}catch(e){}dirPeer=null;dirConn=null;claimHub()}},10000);
     c.on('open',()=>{
       clearTimeout(to);if(c!==dirConn)return;
-      dirState='ok';
+      dirState='ok';slotFails=0;
       if(myRoom)dirSend(regMsg());
       dirSend({t:'list'});
     });
@@ -614,6 +626,7 @@ function renderRooms(){
   if(dirState==='ok')msg=myRoom?(list.length>1?'':'아직 다른 방은 없습니다.'):(list.length?'':'아직 열린 방이 없습니다. 방을 만들어 보세요.');
   else if(dirState==='fail'||Date.now()-dirT0>15000)msg='방 목록을 불러오지 못했어요. 새로고침을 누르거나 방 코드로 입장해 주세요.';
   else msg='방 목록 서버에 연결하는 중…';
+  msg+=' ['+(hubPeer?'허브':'참가')+' '+hubSlot+']';
   if(st.textContent!==msg)st.textContent=msg;
 }
 $('rlRefresh').onclick=()=>{
