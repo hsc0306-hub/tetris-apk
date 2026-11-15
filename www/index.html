@@ -71,7 +71,7 @@ body.land #vk [data-a=D]{grid-column:1/3;width:100%}
 .ri .c{font:12px monospace;color:#a9b2d8;margin-top:2px}
 #chatBtn{position:relative}
 #chatBadge{display:none;background:var(--red);color:#fff;border-radius:9px;font-size:11px;padding:1px 6px;margin-left:4px}
-#chat{display:none;position:fixed;left:0;right:0;bottom:var(--kb,0px);max-width:560px;margin:0 auto;background:#141935;border:2px solid var(--ac);border-bottom:0;border-radius:14px 14px 0 0;z-index:30;padding:8px;flex-direction:column;gap:6px;box-shadow:0 -6px 20px rgba(0,0,0,.5)}
+#chat{display:none;position:fixed;left:0;right:0;bottom:var(--kb,0px);padding-bottom:calc(8px + env(safe-area-inset-bottom,0px)) !important;max-width:560px;margin:0 auto;background:#141935;border:2px solid var(--ac);border-bottom:0;border-radius:14px 14px 0 0;z-index:30;padding:8px;flex-direction:column;gap:6px;box-shadow:0 -6px 20px rgba(0,0,0,.5)}
 #chat.open{display:flex}
 #chat .ch{display:flex;justify-content:space-between;align-items:center}
 #chat .ch button{padding:4px 10px;font-size:14px}
@@ -392,7 +392,7 @@ function inviteText(url){
   return '🎮 테트리스 1:1 대결 신청!\n'+(url?'아래 링크를 누르면 바로 들어와져요 👇\n'+url:'방 코드: '+roomCode);
 }
 function inviteUrl(){
-  if(location.protocol==='file:')return '';
+  if(location.protocol==='file:'||location.hostname==='localhost')return '';
   return location.origin+location.pathname+'?room='+roomCode;
 }
 async function makeRoom(){
@@ -479,37 +479,18 @@ $('joinBtn').onclick=()=>{
 };
 $('codeIn').addEventListener('keydown',e=>{if(e.key==='Enter')$('joinBtn').click()});
 
-addEventListener('pagehide',()=>{try{myRoom&&dirSend({t:'unreg',code:myRoom.code})}catch(e){}try{conn&&conn.close()}catch(e){}try{peer&&peer.destroy()}catch(e){}try{dirPeer&&dirPeer.destroy()}catch(e){}try{hubPeer&&hubPeer.destroy()}catch(e){}});
-document.addEventListener('visibilitychange',()=>{lastRx=performance.now()});
+addEventListener('pagehide',()=>{try{myRoom&&dirSend({t:'unreg',code:myRoom.code})}catch(e){}try{conn&&conn.close()}catch(e){}try{peer&&peer.destroy()}catch(e){}});
+document.addEventListener('visibilitychange',()=>{lastRx=performance.now();if(document.visibilityState==='visible'&&dirStarted)dirPoll()});
 
 /* ---------- 방 목록 ----------
-   별도 서버가 없으므로, 접속 중인 브라우저 하나가 '목록 서버(허브)' 역할을 맡습니다.
-   허브가 없으면 먼저 접속한 사람이 자동으로 허브가 되고, 허브가 나가면 다른 사람이 이어받습니다. */
-const HUB_ID=PFX+'hub-v1';
-let hubPeer=null,dirPeer=null,dirConn=null,dirRetryT=null,dirStopped=false,dirStarted=false,claiming=false;
-let dirState='connecting',dirT0=Date.now(),myRoom=null,rooms=[],lastRoomsKey='';
-const registry=new Map();
+   공개 알림 서버(ntfy.sh)의 주제(topic) 하나를 '게시판'처럼 씁니다.
+   방장이 방 정보를 올리고, 다른 사람은 주기적으로 읽어 옵니다. (폰끼리 허브 연결 방식은 불안정해서 교체) */
+const DIR_URL='https://ntfy.sh/wtetris2p-rooms-k8x3q7';
+let dirStarted=false,dirStopped=false,dirState='connecting',dirErr='',dirT0=Date.now(),myRoom=null,rooms=[],lastRoomsKey='';
 const okCode=c=>typeof c==='string'&&/^[A-Z0-9]{4,12}$/.test(c);
-
-function hubList(){
-  const now=Date.now(),out=[];
-  registry.forEach((r,k)=>{if(now-r.seen>22000)registry.delete(k);else out.push({code:r.code,title:r.title,full:r.full})});
-  return out;
-}
-function hubHandle(o,c,reply){
-  if(!o||typeof o!=='object')return;
-  if(o.t==='reg'&&okCode(o.code)){
-    registry.set(o.code,{code:o.code,title:String(o.title||'').slice(0,20),full:!!o.full,seen:Date.now(),c});
-  }else if(o.t==='unreg'&&okCode(o.code)){
-    const r=registry.get(o.code);if(r&&r.c===c)registry.delete(o.code);
-  }else if(o.t==='list'){
-    reply({t:'rooms',rooms:hubList()});
-  }
-}
 function regMsg(){return{t:'reg',code:myRoom.code,title:myRoom.title,full:myRoom.full}}
 function dirSend(o){
-  if(hubPeer){hubHandle(o,null,r=>{rooms=r.rooms;renderRooms()});return}
-  try{if(dirConn&&dirConn.open)dirConn.send(o)}catch(e){}
+  try{fetch(DIR_URL,{method:'POST',body:JSON.stringify(o),keepalive:true}).catch(()=>{})}catch(e){}
 }
 function leaveMyRoom(){
   try{if(myRoom)dirSend({t:'unreg',code:myRoom.code})}catch(e){}
@@ -519,72 +500,34 @@ function leaveMyRoom(){
   peer=null;isHost=false;
 }
 function setRoomFull(f){if(myRoom){myRoom.full=f;dirSend(regMsg())}}
-
-function claimHub(){
-  if(hubPeer||dirStopped||claiming)return;
-  claiming=true;
-  const hp=new Peer(HUB_ID);
-  hp.on('open',()=>{
-    claiming=false;
-    if(dirStopped){try{hp.destroy()}catch(e){}return}
-    hubPeer=hp;
-    try{dirPeer&&dirPeer.destroy()}catch(e){}
-    dirPeer=null;dirConn=null;dirState='ok';
-    if(myRoom)dirSend(regMsg());
-    dirSend({t:'list'});
-  });
-  hp.on('connection',c=>{
-    c.on('data',m=>hubHandle(m,c,r=>{try{c.send(r)}catch(e){}}));
-    c.on('close',()=>{registry.forEach((r,k)=>{if(r.c===c)registry.delete(k)})});
-  });
-  hp.on('disconnected',()=>{try{hp.reconnect()}catch(e){}});
-  hp.on('error',()=>{
-    if(!hubPeer){claiming=false;try{hp.destroy()}catch(e){}dirRetry()}
-  });
-}
-function dirConnect(){
-  if(hubPeer||dirStopped||claiming)return;
-  try{dirPeer&&dirPeer.destroy()}catch(e){}
-  dirConn=null;
-  const p=dirPeer=new Peer();
-  p.on('open',()=>{
-    if(p!==dirPeer)return;
-    const c=p.connect(HUB_ID,{serialization:'json',reliable:true});
-    dirConn=c;
-    const to=setTimeout(()=>{if(c===dirConn&&!c.open)dirRetry()},8000);
-    c.on('open',()=>{
-      clearTimeout(to);if(c!==dirConn)return;
-      dirState='ok';
-      if(myRoom)dirSend(regMsg());
-      dirSend({t:'list'});
+function dirStop(){dirStopped=true}
+async function dirPoll(){
+  if(dirStopped)return;
+  try{
+    const r=await fetch(DIR_URL+'/json?poll=1&since=10m',{cache:'no-store'});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const txt=await r.text();
+    const now=Date.now()/1000,map=new Map();
+    txt.split('\n').forEach(l=>{
+      if(!l.trim())return;
+      let e;try{e=JSON.parse(l)}catch(_){return}
+      if(e.event!=='message')return;
+      let m;try{m=JSON.parse(e.message)}catch(_){return}
+      if(!m||!okCode(m.code))return;
+      map.set(m.code,{t:m.t,title:String(m.title||'').slice(0,20),full:!!m.full,time:e.time});
     });
-    c.on('data',m=>{if(m&&m.t==='rooms'&&Array.isArray(m.rooms)){rooms=m.rooms.slice(0,50);renderRooms()}});
-    c.on('close',()=>{clearTimeout(to);if(c===dirConn){dirConn=null;dirRetry()}});
-  });
-  p.on('error',err=>{
-    if(p!==dirPeer)return;
-    if(err.type==='peer-unavailable')claimHub();else dirRetry();
-  });
+    const out=[];
+    map.forEach((v,code)=>{if(v.t==='reg'&&now-v.time<240)out.push({code,title:v.title,full:v.full})});
+    rooms=out.slice(0,50);dirState='ok';dirErr='';
+  }catch(e){dirState='fail';dirErr=String(e&&e.message||e).slice(0,40)}
+  renderRooms();
 }
-function dirRetry(ms){
-  if(dirStopped||hubPeer||dirRetryT)return;
-  dirRetryT=setTimeout(()=>{dirRetryT=null;dirConnect()},ms==null?1500+Math.random()*2000:ms);
-}
-function dirStop(){
-  dirStopped=true;clearTimeout(dirRetryT);dirRetryT=null;
-  if(!hubPeer){try{dirPeer&&dirPeer.destroy()}catch(e){}dirPeer=null;dirConn=null}
-}
-async function dirStart(){
+function dirStart(){
   if(dirStarted)return;
   dirStarted=true;dirT0=Date.now();
-  try{await loadPeerLib()}catch(e){dirState='fail';renderRooms();return}
-  dirConnect();
-  setInterval(()=>{if(myRoom)dirSend(regMsg())},8000);
-  setInterval(()=>{
-    if($('lobby').style.display==='none')return;
-    if(hubPeer){rooms=hubList();renderRooms()}else dirSend({t:'list'});
-    renderRooms();
-  },4000);
+  dirPoll();
+  setInterval(()=>{if($('lobby').style.display!=='none')dirPoll()},5000);
+  setInterval(()=>{if(myRoom&&!dirStopped)dirSend(regMsg())},100000);
 }
 function renderRooms(){
   const box=$('rl'),st=$('rlSt');
@@ -612,19 +555,15 @@ function renderRooms(){
   }
   let msg;
   if(dirState==='ok')msg=myRoom?(list.length>1?'':'아직 다른 방은 없습니다.'):(list.length?'':'아직 열린 방이 없습니다. 방을 만들어 보세요.');
-  else if(dirState==='fail'||Date.now()-dirT0>15000)msg='방 목록을 불러오지 못했어요. 새로고침을 누르거나 방 코드로 입장해 주세요.';
+  else if(dirState==='fail')msg='방 목록을 불러오지 못했어요 ('+dirErr+'). 새로고침을 누르거나 방 코드로 입장해 주세요.';
   else msg='방 목록 서버에 연결하는 중…';
   if(st.textContent!==msg)st.textContent=msg;
 }
-$('rlRefresh').onclick=()=>{
-  if(hubPeer){rooms=hubList();renderRooms()}
-  else if(dirConn&&dirConn.open)dirSend({t:'list'});
-  else{dirT0=Date.now();dirRetry(0)}
-};
+$('rlRefresh').onclick=()=>{dirState='connecting';dirT0=Date.now();dirPoll()};
 
 /* 시작: 링크에 room 값이 있으면 자동 입장 */
 (function(){
-  if(location.protocol==='file:')$('warnFile').style.display='block';
+  
   const q=new URLSearchParams(location.search).get('room');
   if(q&&/^[A-Za-z0-9]{4,12}$/.test(q))joinRoom(q.toUpperCase());
   else dirStart();
@@ -739,7 +678,7 @@ if('ontouchstart' in window||navigator.maxTouchPoints>0)setVK(true);
 function layout(){
   if(chatFocus)return; /* 채팅 입력 중 키보드가 떠도 게임판 크기를 바꾸지 않음 */
   const b=document.body,root=document.documentElement.style;
-  const LIFT=64; /* 오른쪽 아래 'Powered by Netlify' 배지를 피해 버튼을 올리는 높이(px). 배지가 없는 곳에 올리면 0 */
+  const LIFT=(location.hostname==='localhost')?0:64; /* 오른쪽 아래 'Powered by Netlify' 배지를 피해 버튼을 올리는 높이(px). 배지가 없는 곳에 올리면 0 */
   const vv=window.visualViewport;
   const vw=Math.floor(document.documentElement.clientWidth||innerWidth);
   const vh=Math.floor(vv?vv.height:innerHeight);
