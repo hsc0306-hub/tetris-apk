@@ -15,6 +15,10 @@ jobs:
       - run: npm install
       - run: npx cap add android
       - run: npx cap sync android
+      - name: Apply app icon
+        run: |
+          rm -rf android/app/src/main/res/mipmap-anydpi-v26
+          cp -r icons/* android/app/src/main/res/
       - run: cd android && chmod +x gradlew && ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
         with:
