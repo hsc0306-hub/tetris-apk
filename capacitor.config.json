@@ -1,0 +1,7 @@
+{
+  "appId": "com.linktetris.app",
+  "appName": "링크 테트리스",
+  "webDir": "www",
+  "android": { "adjustMarginsForEdgeToEdge": "force" },
+  "server": { "allowNavigation": ["*.supabase.co", "*.kakao.com", "*.kakaocdn.net", "*.daum.net"] }
+}
