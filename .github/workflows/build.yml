@@ -14,6 +14,16 @@ jobs:
         with: { distribution: temurin, java-version: 21 }
       - run: npm install
       - run: npx cap add android
+      - name: Add login deep link
+        run: |
+          python3 - <<'PY'
+          p='android/app/src/main/AndroidManifest.xml'
+          s=open(p,encoding='utf-8').read()
+          f='<intent-filter><action android:name="android.intent.action.VIEW"/><category android:name="android.intent.category.DEFAULT"/><category android:name="android.intent.category.BROWSABLE"/><data android:scheme="com.linktetris.app" android:host="auth"/></intent-filter>'
+          i=s.index('</activity>')
+          open(p,'w',encoding='utf-8').write(s[:i]+f+s[i:])
+          PY
+          grep -c "com.linktetris.app" android/app/src/main/AndroidManifest.xml
       - run: npx cap sync android
       - name: Apply app icon
         run: |
