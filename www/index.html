@@ -674,7 +674,7 @@ function hostOpen(c){
   c.on('close',()=>{if(conns.get(id)===c)hostDrop(id)});
   c.on('error',()=>{if(conns.get(id)===c)hostDrop(id)});
   if(phase==='lobby')enterGame();
-  sendTo(id,{t:'welcome',you:id,mode,hold:holdOn,drop:dropOn});
+  sendTo(id,{t:'welcome',you:id,mode});
   hostRoster();updateRoomReg();
 }
 function hostDrop(id){
@@ -753,7 +753,7 @@ function checkStart(){
   const seed=Math.floor(Math.random()*2**31);
   startSize=MODES[mode].cap.map((_,i)=>teamCount(i));
   inRound=true;
-  bcast({t:'start',seed,hold:holdOn,drop:dropOn});
+  bcast({t:'start',seed});
   startRound(seed);
   updateRoomReg();
 }
@@ -800,22 +800,15 @@ function onMsg(m){
   switch(m.t){
     case'welcome':
       me=m.you|0;setMode(m.mode);
-      if(typeof m.hold==='boolean')setHold(m.hold,false);
-      if(typeof m.drop==='boolean')setDrop(m.drop,false);
       break;
     case'roster':
       setMode(m.mode);
       if(Array.isArray(m.players))players=m.players.map(x=>({id:x.id|0,name:cleanName(x.name),team:x.team|0,ready:!!x.ready,alive:x.alive!==false,gone:!!x.gone}));
       {const mp=players.find(p=>p.id===me);myReady=!!(mp&&mp.ready)}
       break;
-    case'opt':
-      if(typeof m.hold==='boolean')setHold(m.hold,false);
-      if(typeof m.drop==='boolean')setDrop(m.drop,false);
-      break;
+    case'opt':break; /* 홀드/드롭 사용 여부는 각자 정합니다 */
     case'start':
       if(phase==='wait'||phase==='over'){
-        if(typeof m.hold==='boolean')setHold(m.hold,false);
-        if(typeof m.drop==='boolean')setDrop(m.drop,false);
         startRound(m.seed|0);
       }
       break;
@@ -1097,9 +1090,8 @@ function setHold(on,save){
   layout();
 }
 $('holdChk').onchange=e=>{
-  if(!isHost||phase==='play'||phase==='count'){e.target.checked=holdOn;return}
+  if(phase==='play'||phase==='count'||phase==='spec'){e.target.checked=holdOn;return}
   setHold(e.target.checked,true);
-  sendOpts();
 };
 function setDrop(on,save){
   dropOn=on;$('dropChk').checked=on;
@@ -1108,9 +1100,8 @@ function setDrop(on,save){
 }
 function sendOpts(){bcast({t:'opt',hold:holdOn,drop:dropOn})}
 $('dropChk').onchange=e=>{
-  if(!isHost||phase==='play'||phase==='count'){e.target.checked=dropOn;return}
+  if(phase==='play'||phase==='count'||phase==='spec'){e.target.checked=dropOn;return}
   setDrop(e.target.checked,true);
-  sendOpts();
 };
 try{if(localStorage.getItem('tetrisDrop')==='0')setDrop(false,false)}catch(e){}
 try{if(localStorage.getItem('tetrisHold')==='0')setHold(false,false)}catch(e){}
@@ -1273,12 +1264,12 @@ function ui(now){
   m.style.display=t?'flex':'none';
   if(m.textContent!==t)m.textContent=t;
   const lockOpt=(phase==='play'||phase==='count');
-  const lk=lockOpt||!isHost;
+  const lk=lockOpt||phase==='spec';
   $('holdChk').disabled=lk;$('holdOpt').classList.toggle('dis',lk);
   $('dropChk').disabled=lk;$('dropOpt').classList.toggle('dis',lk);
-  const ht=isHost?'홀드 사용':'홀드 사용 (방장 설정)';
+  const ht='홀드 사용';
   if($('holdTxt').textContent!==ht)$('holdTxt').textContent=ht;
-  const dt2=isHost?'드롭 사용':'드롭 사용 (방장 설정)';
+  const dt2='드롭 사용';
   if($('dropTxt').textContent!==dt2)$('dropTxt').textContent=dt2;
   const b=$('readyBtn');
   b.disabled=!(phase==='wait'||phase==='over');
