@@ -83,6 +83,8 @@ body.land #vk [data-a=D]{grid-column:1/3;width:100%}
 .m{max-width:82%;padding:6px 10px;border-radius:10px;font-size:14px;line-height:1.4;word-break:break-word;white-space:pre-wrap;-webkit-user-select:text;user-select:text}
 .m.me{align-self:flex-end;background:#25407a}
 .m.op{align-self:flex-start;background:#2b3358}
+.m.tm{outline:2px solid #4ade80}
+#chatMode{display:none;gap:6px}#chatMode button{flex:1;padding:6px 8px;font-size:13px}#chatMode button.active{background:var(--ac);color:#06202a;font-weight:700}
 #quick{display:flex;gap:6px;flex-wrap:wrap}
 #quick button{padding:6px 10px;font-size:13px}
 #chat .cr{display:flex;gap:6px}
@@ -105,7 +107,7 @@ button.kakao{background:#FEE500;color:#191600;font-weight:800}.auth-msg{min-heig
 .rank-tabs{display:flex;gap:6px}.rank-tabs button{flex:1;padding:8px 5px}.rank-tabs button.active{background:var(--ac);color:#06202a;font-weight:800}
 #memberArea{display:none}#profileSetup{display:none}
 
-.mode-tabs{display:flex;gap:6px;margin:8px 0}.mode-tabs button{flex:1;padding:9px 5px}.mode-tabs button.active{background:var(--ac);color:#06202a;font-weight:800}
+.mode-tabs{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.mode-tabs button{flex:1 1 28%;padding:9px 5px}.mode-tabs button.active{background:var(--ac);color:#06202a;font-weight:800}
 #opps{display:flex;flex-direction:column;gap:6px;align-items:center;--mh:calc(var(--bh)*.5)}
 #opps[data-k="2"]{--mh:calc(var(--bh)*.4)}
 #opps[data-k="3"]{--mh:calc(var(--bh)*.26)}
@@ -171,7 +173,7 @@ button.kakao{background:#FEE500;color:#191600;font-weight:800}.auth-msg{min-heig
     <div class="card">
       <h3>① 친구를 초대하기 (방장)</h3>
       <div class="small">방을 만들면 <b>초대 링크</b>가 생깁니다. 카카오톡으로 보내고, 친구가 누르면 바로 게임이 시작됩니다.</div>
-      <div class="mode-tabs" id="modeTabs"><button data-mode="1v1" class="active">1:1</button><button data-mode="1v2">1:2</button><button data-mode="2v2">2:2</button></div>
+      <div class="mode-tabs" id="modeTabs"><button data-mode="1v1" class="active">1:1</button><button data-mode="1v2">1:2</button><button data-mode="2v2">2:2</button><button data-mode="1v1v1">1:1:1</button><button data-mode="1v1v1v1">1:1:1:1</button></div>
       <div id="modeHint" class="small">둘이서 1:1로 겨룹니다.</div>
       <div class="row"><input id="roomTitle" maxlength="20" placeholder="방 제목 (선택)" autocomplete="off" style="flex:1"><button id="mkRoom" class="pri">방 만들기</button></div>
     </div>
@@ -250,6 +252,7 @@ button.kakao{background:#FEE500;color:#191600;font-weight:800}.auth-msg{min-heig
 <div id="chatToast"></div>
 <div id="chat">
   <div class="ch"><b>💬 채팅</b><button id="chatX">✕</button></div>
+  <div id="chatMode"><button data-cm="all" class="active">💬 전체</button><button data-cm="team">🟢 팀 전용</button></div>
   <div id="chatLog"></div>
   <div id="quick"><button>ㅎㅇ</button><button>ㅋㅋ</button><button>GG</button><button>한 판 더!</button></div>
   <div class="cr"><input id="chatIn" maxlength="100" placeholder="메시지 입력" autocomplete="off"><button id="chatSend" class="pri">전송</button></div>
@@ -581,8 +584,8 @@ async function recordRound(result){
 /* ---------- 대결 방식 (1:1 / 1:2 / 2:2) ----------
    방장이 중심인 '별 모양' 연결입니다. 손님은 방장하고만 연결되고, 방장이 모두에게 전달합니다.
    방장의 입력도 손님과 같은 길(hostHandle)로 처리해서 규칙이 하나로 유지됩니다. */
-const MODES={'1v1':{label:'1:1',max:2,cap:[1,1]},'1v2':{label:'1:2',max:3,cap:[1,2]},'2v2':{label:'2:2',max:4,cap:[2,2]}};
-let mode='1v1',MAXP=2,me=0,players=[],conns=new Map(),snaps={},teamWins=[0,0],inRound=false,startSize=[1,1],selMode='1v1';
+const MODES={'1v1':{label:'1:1',max:2,cap:[1,1]},'1v2':{label:'1:2',max:3,cap:[1,2]},'2v2':{label:'2:2',max:4,cap:[2,2]},'1v1v1':{label:'1:1:1',max:3,cap:[1,1,1],ffa:true},'1v1v1v1':{label:'1:1:1:1',max:4,cap:[1,1,1,1],ffa:true}};
+let mode='1v1',MAXP=2,me=0,players=[],conns=new Map(),snaps={},teamWins=[0,0,0,0],inRound=false,startSize=[1,1],selMode='1v1';
 let peer=null,conn=null,snapTimer=null,pingTimer=null,lastRx=0,roomCode='';
 const st=t=>$('st').textContent=t;
 const myName=()=>cleanNickname(currentNickname)||'플레이어';
@@ -622,7 +625,7 @@ const rcode=()=>{const a='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let s='';for(let i=0
 
 /* --- 게임 화면 진입 / 주기 작업 --- */
 function enterGame(){
-  blank();snaps={};teamWins=[0,0];inRound=false;
+  blank();snaps={};teamWins=[0,0,0,0];inRound=false;
   $('lobby').style.display='none';$('game').style.display='flex';document.body.classList.add('ingame');layout();setTimeout(layout,100);setTimeout(layout,600);
   phase='wait';endText='';lastRx=performance.now();
   if(!isHost)dirStop();
@@ -652,7 +655,7 @@ function exitRoom(){
 function mkPlayer(id,name,team){return{id,name:cleanName(name),team,ready:false,alive:true,gone:false,rx:performance.now()}}
 function pickTeam(){
   const cap=MODES[mode].cap;
-  const c=[0,1].filter(t=>teamCount(t)<cap[t]);
+  const c=cap.map((_,i)=>i).filter(t=>teamCount(t)<cap[t]);
   if(!c.length)return -1;
   c.sort((x,y)=>teamCount(x)-teamCount(y)||x-y);
   return c[0];
@@ -695,7 +698,7 @@ function hostHandle(from,m){
   switch(m.t){
     case'hello':p.name=cleanName(m.name);hostRoster();break;
     case'r':if(phase==='wait'||phase==='over'){p.ready=!!m.v;hostRoster();checkStart()}break;
-    case'team':if(!inRound&&(phase==='wait'||phase==='over')){
+    case'team':if(!inRound&&!MODES[mode].ffa&&(phase==='wait'||phase==='over')){
       const o=1-p.team;
       if(MODES[mode].cap[o]>teamCount(o)){p.team=o;hostRoster()}
     }break;
@@ -707,8 +710,15 @@ function hostHandle(from,m){
     case'over':hostDead(from);break;
     case'chat':{
       const t=String(m.m||'').slice(0,100);if(!t)break;
-      bcast({t:'chat',i:from,m:t},from);
-      if(from!==0)recvChat(from,t);
+      const tm=!!m.tm&&!MODES[mode].ffa&&teamCount(p.team)>=2;
+      const out={t:'chat',i:from,m:t,tm};
+      if(tm){
+        players.filter(x=>x.team===p.team&&x.id!==from&&x.id!==0&&!x.gone).forEach(x=>sendTo(x.id,out));
+        if(from!==0&&myTeam()===p.team)recvChat(from,t,true);
+      }else{
+        bcast(out,from);
+        if(from!==0)recvChat(from,t,false);
+      }
     }break;
   }
 }
@@ -739,9 +749,9 @@ function hostCheckEnd(){
 function checkStart(){
   if(!isHost||inRound||!(phase==='wait'||phase==='over'))return;
   const live=players.filter(p=>!p.gone);
-  if(live.length<MAXP||!live.every(p=>p.ready)||teamCount(0)===0||teamCount(1)===0)return;
+  if(live.length<MAXP||!live.every(p=>p.ready)||new Set(live.map(p=>p.team)).size<2)return;
   const seed=Math.floor(Math.random()*2**31);
-  startSize=[teamCount(0),teamCount(1)];
+  startSize=MODES[mode].cap.map((_,i)=>teamCount(i));
   inRound=true;
   bcast({t:'start',seed,hold:holdOn,drop:dropOn});
   startRound(seed);
@@ -795,7 +805,7 @@ function onMsg(m){
       break;
     case'roster':
       setMode(m.mode);
-      if(Array.isArray(m.players))players=m.players.map(x=>({id:x.id|0,name:cleanName(x.name),team:x.team?1:0,ready:!!x.ready,alive:x.alive!==false,gone:!!x.gone}));
+      if(Array.isArray(m.players))players=m.players.map(x=>({id:x.id|0,name:cleanName(x.name),team:x.team|0,ready:!!x.ready,alive:x.alive!==false,gone:!!x.gone}));
       {const mp=players.find(p=>p.id===me);myReady=!!(mp&&mp.ready)}
       break;
     case'opt':
@@ -813,7 +823,7 @@ function onMsg(m){
     case'atk':if(phase==='play'){pending+=m.n|0;sfx('warn')}break;
     case'dead':{const p=players.find(x=>x.id===m.i);if(p)p.alive=false}break;
     case'end':onEnd(m.team);break;
-    case'chat':recvChat(m.i,m.m);break;
+    case'chat':recvChat(m.i,m.m,!!m.tm);break;
     case'sys':sysChat(m.m);break;
     case'full':onDisc(m.why||'참가할 수 없는 방입니다');break;
   }
@@ -827,7 +837,7 @@ $('exitBtn').onclick=()=>{if(confirm('방에서 나갈까요?'))exitRoom()};
 
 /* ---------- 방장: 방 만들기 ---------- */
 let hostTries=0,roomTitle='';
-const MODE_HINT={'1v1':'둘이서 1:1로 겨룹니다.','1v2':'방장 혼자 vs 손님 2명 (총 3명). 혼자인 쪽은 받는 공격이 줄어듭니다.','2v2':'2명씩 팀으로 겨룹니다 (총 4명). 입장 후 "팀 바꾸기"로 팀을 고를 수 있어요.'};
+const MODE_HINT={'1v1':'둘이서 1:1로 겨룹니다.','1v2':'방장 혼자 vs 손님 2명 (총 3명). 혼자인 쪽은 받는 공격이 줄어듭니다.','2v2':'2명씩 팀으로 겨룹니다 (총 4명). 입장 후 "팀 바꾸기"로 팀을 고를 수 있어요.','1v1v1':'3명이 각자 싸우는 개인전입니다. 마지막까지 살아남으면 승리!','1v1v1v1':'4명이 각자 싸우는 개인전입니다. 마지막까지 살아남으면 승리!'};
 document.querySelectorAll('.mode-tabs button').forEach(b=>b.onclick=()=>{
   selMode=b.dataset.mode;
   document.querySelectorAll('.mode-tabs button').forEach(x=>x.classList.toggle('active',x===b));
@@ -1023,8 +1033,16 @@ $('rlRefresh').onclick=()=>{dirState='connecting';dirT0=Date.now();dirPoll()};
 
 /* ---------- 채팅 ---------- */
 let unread=0,toastT=null;
-function addChat(who,text){
-  const d=document.createElement('div');d.className='m '+who;d.textContent=text;
+let chatTeam=false;
+const canTeamChat=()=>!MODES[mode].ffa&&teamCount(myTeam())>=2;
+function setCM(on){
+  chatTeam=!!on;
+  document.querySelectorAll('#chatMode button').forEach(b=>b.classList.toggle('active',(b.dataset.cm==='team')===chatTeam));
+  $('chatIn').placeholder=chatTeam?'팀원에게만 보이는 메시지':'메시지 입력';
+}
+document.querySelectorAll('#chatMode button').forEach(b=>b.onclick=()=>setCM(b.dataset.cm==='team'));
+function addChat(who,text,tm){
+  const d=document.createElement('div');d.className='m '+who+(tm?' tm':'');d.textContent=(tm?'[팀] ':'')+text;
   const log=$('chatLog');log.appendChild(d);
   while(log.children.length>60)log.removeChild(log.firstChild);
   log.scrollTop=log.scrollHeight;
@@ -1040,17 +1058,18 @@ function sendChat(text){
   text=(text||'').trim().slice(0,100);
   if(!text)return;
   if(!isHost&&(!conn||!conn.open)){addChat('op','(연결이 끊어져 보낼 수 없습니다)');return}
-  emit({t:'chat',m:text});addChat('me',text);
+  const tm=chatTeam&&canTeamChat();
+  emit({t:'chat',m:text,tm});addChat('me',text,tm);
 }
 function nameOf(i){const p=players.find(x=>x.id===i);return p?p.name:'상대'}
-function recvChat(i,text){
+function recvChat(i,text,tm){
   if(typeof text!=='string')return;
   text=text.slice(0,100);
   const line=nameOf(i)+': '+text;
-  addChat('op',line);
+  addChat('op',line,tm);
   if(!chatIsOpen()){
     unread++;updBadge();
-    const t=$('chatToast');t.textContent=line;t.style.display='block';
+    const t=$('chatToast');t.textContent=(tm?'[팀] ':'')+line;t.style.display='block';
     clearTimeout(toastT);toastT=setTimeout(()=>{t.style.display='none'},4000);
   }
 }
@@ -1229,7 +1248,7 @@ function draw(){
   drawOpps();
   $('bar').style.height=Math.min(100,pending/H*100)+'%';
   $('myInfo').textContent=`점수 ${score} · 줄 ${lines}\nLv ${level} · 받을 공격 ${pending}`+(combo>0?` · 콤보 ${combo}`:'');
-  $('score').textContent=`${mode==='1v1'?'나':'우리'} ${teamWins[myTeam()]} : ${teamWins[1-myTeam()]} 상대`;
+  $('score').textContent=MODES[mode].ffa?`내 승리 ${teamWins[myTeam()]}회`:`${mode==='1v1'?'나':'우리'} ${teamWins[myTeam()]} : ${teamWins[1-myTeam()]} 상대`;
 }
 function ui(now){
   let t='';
@@ -1237,7 +1256,9 @@ function ui(now){
   const rdy=need?(isHost?'참가자를 기다리는 중…\n방 코드 '+roomCode:'다른 참가자를 기다리는 중…'):(myReady?'모두 준비되길 기다리는 중…':'준비를 누르세요');
   const roster=()=>{
     const L=[MODES[mode].label+' 대결 · '+liveCount()+'/'+MAXP+'명'];
-    [0,1].forEach(tm=>{
+    if(MODES[mode].ffa){
+      L.push('개인전: '+(players.filter(p=>!p.gone).map(p=>(p.id===me?'★':'')+p.name+(p.ready?'✔':'')).join(', ')||'(빈 자리)'));
+    }else[0,1].forEach(tm=>{
       const ps=players.filter(p=>p.team===tm&&!p.gone);
       L.push((tm?'B팀: ':'A팀: ')+(ps.map(p=>(p.id===me?'★':'')+p.name+(p.ready?'✔':'')).join(', ')||'(빈 자리)'));
     });
@@ -1262,8 +1283,11 @@ function ui(now){
   const b=$('readyBtn');
   b.disabled=!(phase==='wait'||phase==='over');
   b.textContent=myReady?'준비 취소':(phase==='over'?'다시 하기':'준비');
+  const cmOn=canTeamChat(),cmEl=$('chatMode');
+  if(cmEl.style.display!==(cmOn?'flex':'none'))cmEl.style.display=cmOn?'flex':'none';
+  if(!cmOn&&chatTeam)setCM(false);
   const tb=$('teamBtn'),ot=1-myTeam();
-  tb.style.display=mode==='1v1'?'none':'inline-block';
+  tb.style.display=(mode==='1v1'||MODES[mode].ffa)?'none':'inline-block';
   tb.disabled=!((phase==='wait'||phase==='over')&&MODES[mode].cap[ot]>teamCount(ot));
   tb.textContent='팀 바꾸기 ('+(myTeam()?'B→A':'A→B')+')';
 }
