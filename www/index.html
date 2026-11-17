@@ -105,12 +105,23 @@ button.kakao{background:#FEE500;color:#191600;font-weight:800}.auth-msg{min-heig
 .rank-tabs{display:flex;gap:6px}.rank-tabs button{flex:1;padding:8px 5px}.rank-tabs button.active{background:var(--ac);color:#06202a;font-weight:800}
 #memberArea{display:none}#profileSetup{display:none}
 
+.mode-tabs{display:flex;gap:6px;margin:8px 0}.mode-tabs button{flex:1;padding:9px 5px}.mode-tabs button.active{background:var(--ac);color:#06202a;font-weight:800}
+#opps{display:flex;flex-direction:column;gap:6px;align-items:center;--mh:calc(var(--bh)*.5)}
+#opps[data-k="2"]{--mh:calc(var(--bh)*.4)}
+#opps[data-k="3"]{--mh:calc(var(--bh)*.26)}
+.op{display:flex;flex-direction:column;align-items:center;gap:2px}
+.op canvas{height:var(--mh);width:auto;border:2px solid #7b8bd6;box-shadow:0 0 8px rgba(123,139,214,.4)}
+.op.ally canvas{border-color:#4ade80;box-shadow:0 0 8px rgba(74,222,128,.4)}
+.op.foe canvas{border-color:var(--red);box-shadow:0 0 8px rgba(255,77,109,.4)}
+.op.dead canvas{opacity:.4}
+.opn{font-size:11px;max-width:calc(var(--mh)/2 + 14px);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#c8d0f0}
+.opi{font-size:11px;line-height:1.3;white-space:pre;text-align:center;color:#c8d0f0;min-height:14px}
 </style>
 </head>
 <body>
 
 <div id="lobby">
-  <h2>🎮 링크 테트리스 <small style="font-size:13px;color:#a9b2d8">1:1 온라인 대결</small></h2>
+  <h2>🎮 링크 테트리스 <small style="font-size:13px;color:#a9b2d8">온라인 대결</small></h2>
 
   <div id="authGate" class="auth-card">
     <h3>🔐 회원 로그인</h3>
@@ -160,6 +171,8 @@ button.kakao{background:#FEE500;color:#191600;font-weight:800}.auth-msg{min-heig
     <div class="card">
       <h3>① 친구를 초대하기 (방장)</h3>
       <div class="small">방을 만들면 <b>초대 링크</b>가 생깁니다. 카카오톡으로 보내고, 친구가 누르면 바로 게임이 시작됩니다.</div>
+      <div class="mode-tabs" id="modeTabs"><button data-mode="1v1" class="active">1:1</button><button data-mode="1v2">1:2</button><button data-mode="2v2">2:2</button></div>
+      <div id="modeHint" class="small">둘이서 1:1로 겨룹니다.</div>
       <div class="row"><input id="roomTitle" maxlength="20" placeholder="방 제목 (선택)" autocomplete="off" style="flex:1"><button id="mkRoom" class="pri">방 만들기</button></div>
     </div>
     <div class="card" id="listCard">
@@ -183,6 +196,7 @@ button.kakao{background:#FEE500;color:#191600;font-weight:800}.auth-msg{min-heig
       <div class="small" style="margin-top:8px">초대 링크</div>
       <div class="row"><input id="linkOut" readonly></div>
     </div>
+    <div id="hostNeed" class="small" style="margin:8px 0"></div>
     <div class="row">
       <button id="cpBtn" class="pri">📋 카톡용 메시지 복사</button>
       <button id="shBtn" style="display:none">📤 공유하기</button>
@@ -204,11 +218,13 @@ button.kakao{background:#FEE500;color:#191600;font-weight:800}.auth-msg{min-heig
   <div class="top">
     <div id="score">나 0 : 0 상대</div>
     <button id="readyBtn" class="pri">준비</button>
+    <button id="teamBtn" style="display:none">팀 바꾸기</button>
     <button id="vkBtn">⌨ 가상 키보드: OFF</button>
     <label id="holdOpt"><input type="checkbox" id="holdChk" checked><span id="holdTxt">홀드 사용</span></label>
     <label id="dropOpt"><input type="checkbox" id="dropChk" checked><span id="dropTxt">드롭 사용</span></label>
     <button id="sfxBtn">🔊</button><button id="bgmBtn">🎵</button>
     <button id="chatBtn">💬 채팅<span id="chatBadge"></span></button>
+    <button id="exitBtn">나가기</button>
   </div>
   <div class="main">
     <div class="side">
@@ -224,10 +240,9 @@ button.kakao{background:#FEE500;color:#191600;font-weight:800}.auth-msg{min-heig
       </div>
       <div id="myInfo"></div>
     </div>
-    <div class="side">
-      <div class="lbl">상대 화면</div>
-      <canvas id="oc" width="150" height="300"></canvas>
-      <div id="opInfo"></div>
+    <div class="side" id="oppSide">
+      <div class="lbl" id="oppLbl">상대 화면</div>
+      <div id="opps"></div>
     </div>
   </div>
 </div>
@@ -299,11 +314,36 @@ async function emailSignup(){
   if(error)return authMsg('회원가입 실패: '+error.message);
   if(data.session)await syncAuth(data.session);else authMsg('가입 완료! 이메일 인증 링크를 확인한 뒤 로그인해 주세요.');
 }
+const isNativeApp=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
+const APP_REDIRECT='com.linktetris.app://auth';
 async function kakaoLogin(){
   if(!sb)return authMsg('먼저 Supabase URL과 anon 키를 설정하세요.');
   authMsg('카카오 로그인 페이지로 이동합니다…');
+  if(isNativeApp){
+    const {data,error}=await sb.auth.signInWithOAuth({provider:'kakao',options:{redirectTo:APP_REDIRECT,skipBrowserRedirect:true}});
+    if(error)return authMsg('카카오 로그인 실패: '+error.message);
+    try{await window.Capacitor.Plugins.Browser.open({url:data.url})}catch(e){authMsg('로그인 창을 열지 못했습니다: '+e.message)}
+    return;
+  }
   const {error}=await sb.auth.signInWithOAuth({provider:'kakao',options:{redirectTo:location.href}});
   if(error)authMsg('카카오 로그인 실패: '+error.message);
+}
+/* 앱: 카카오 로그인 후 com.linktetris.app://auth 로 돌아오면 여기서 로그인 처리 */
+if(isNativeApp&&window.Capacitor.Plugins.App){
+  window.Capacitor.Plugins.App.addListener('appUrlOpen',async ev=>{
+    try{
+      const u=String(ev.url||'');
+      if(!u.startsWith(APP_REDIRECT))return;
+      try{await window.Capacitor.Plugins.Browser.close()}catch(e){}
+      const q=new URLSearchParams(u.includes('#')?u.split('#')[1]:(u.split('?')[1]||''));
+      if(q.get('error_description'))return authMsg('카카오 로그인 실패: '+q.get('error_description'));
+      let res=null;
+      if(q.get('access_token')&&q.get('refresh_token'))res=await sb.auth.setSession({access_token:q.get('access_token'),refresh_token:q.get('refresh_token')});
+      else if(q.get('code'))res=await sb.auth.exchangeCodeForSession(q.get('code'));
+      if(res&&res.error)return authMsg('로그인 처리 실패: '+res.error.message);
+      if(res&&res.data&&res.data.session)await syncAuth(res.data.session);
+    }catch(e){authMsg('로그인 처리 실패: '+e.message)}
+  });
 }
 async function saveNickname(){
   if(!currentUser)return;
@@ -411,9 +451,7 @@ function bgmTick(){
     bgmI++;if(bgmI>=BGM.length){bgmI=0;bgmB-=BGM_LEN}
   }
 }
-function updSnd(){
-  $('sfxBtn').textContent=sfxOn?'🔊':'🔇';$('bgmBtn').textContent=bgmOn?'🎵':'🔕';
-}
+function updSnd(){$('sfxBtn').textContent=sfxOn?'🔊':'🔇';$('bgmBtn').textContent=bgmOn?'🎵':'🔕'}
 $('sfxBtn').onclick=()=>{sfxOn=!sfxOn;try{localStorage.setItem('tetrisSfx',sfxOn?'1':'0')}catch(e){}updSnd();if(sfxOn)sfx('beep')};
 $('bgmBtn').onclick=()=>{bgmOn=!bgmOn;try{localStorage.setItem('tetrisBgm',bgmOn?'1':'0')}catch(e){}updSnd();if(!bgmOn)bgmStop()};
 updSnd();
@@ -517,7 +555,7 @@ function lock(){
     if(combo>0){score+=50*combo*level;showCombo(combo)}
     sfx(n>=4?'tetris':'clear',n);if(combo>0){const cc=combo;setTimeout(()=>sfx('combo',cc),180)}
     const c=Math.min(pending,a);pending-=c;a-=c;
-    if(a>0){send({t:'atk',n:a});sfx('atk')}
+    if(a>0){emit({t:'atk',n:a});sfx('atk')}
   }else{combo=-1;sfx('lock')}
   if(n===0&&pending>0){
     sfx('garb');
@@ -539,15 +577,24 @@ async function recordRound(result){
   if(error){console.warn('점수 저장 실패:',error.message);return;}
   loadRanking();
 }
-function lose(){
-  phase='over';sendSnap();send({t:'over'});oppWins++;endText='패배…';sfx('lose');recordRound('loss');
-}
-function win(txt){phase='over';myWins++;endText=txt||'승리! 🎉';sfx('win');recordRound('win')}
 
-/* ---------- 네트워크 (PeerJS = WebRTC 연결 도우미) ---------- */
+/* ---------- 대결 방식 (1:1 / 1:2 / 2:2) ----------
+   방장이 중심인 '별 모양' 연결입니다. 손님은 방장하고만 연결되고, 방장이 모두에게 전달합니다.
+   방장의 입력도 손님과 같은 길(hostHandle)로 처리해서 규칙이 하나로 유지됩니다. */
+const MODES={'1v1':{label:'1:1',max:2,cap:[1,1]},'1v2':{label:'1:2',max:3,cap:[1,2]},'2v2':{label:'2:2',max:4,cap:[2,2]}};
+let mode='1v1',MAXP=2,me=0,players=[],conns=new Map(),snaps={},teamWins=[0,0],inRound=false,startSize=[1,1],selMode='1v1';
 let peer=null,conn=null,snapTimer=null,pingTimer=null,lastRx=0,roomCode='';
 const st=t=>$('st').textContent=t;
+const myName=()=>cleanNickname(currentNickname)||'플레이어';
+const cleanName=v=>String(v||'').replace(/[<>]/g,'').trim().slice(0,16)||'플레이어';
+const myTeam=()=>{const p=players.find(x=>x.id===me);return p?p.team:0};
+const teamCount=t=>players.filter(p=>p.team===t&&!p.gone).length;
+const liveCount=()=>players.filter(p=>!p.gone).length;
+function setMode(m){if(!MODES[m])return;mode=m;MAXP=MODES[m].max}
 function send(o){try{if(conn&&conn.open)conn.send(o)}catch(e){}}
+function sendTo(id,o){try{const c=conns.get(id);if(c&&c.open)c.send(o)}catch(e){}}
+function bcast(o,except){conns.forEach((c,id)=>{if(id!==except){try{if(c.open)c.send(o)}catch(e){}}})}
+function emit(o){if(isHost)hostHandle(0,o);else send(o)}
 function snapStr(){
   const rows=grid.map(r=>r.slice());
   if(pc)pc.m.forEach((r,j)=>r.forEach((v,i)=>{
@@ -555,7 +602,7 @@ function snapStr(){
   }));
   return rows.map(r=>r.join('')).join('');
 }
-function sendSnap(){send({t:'b',g:snapStr(),s:score,l:lines,p:pending})}
+function sendSnap(){emit({t:'b',g:snapStr(),s:score,l:lines,p:pending})}
 function loadPeerLib(){
   return new Promise((res,rej)=>{
     if(window.Peer)return res();
@@ -573,55 +620,221 @@ function loadPeerLib(){
 }
 const rcode=()=>{const a='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let s='';for(let i=0;i<6;i++)s+=a[Math.floor(Math.random()*a.length)];return s};
 
+/* --- 게임 화면 진입 / 주기 작업 --- */
+function enterGame(){
+  blank();snaps={};teamWins=[0,0];inRound=false;
+  $('lobby').style.display='none';$('game').style.display='flex';document.body.classList.add('ingame');layout();setTimeout(layout,100);setTimeout(layout,600);
+  phase='wait';endText='';lastRx=performance.now();
+  if(!isHost)dirStop();
+  clearInterval(snapTimer);clearInterval(pingTimer);
+  snapTimer=setInterval(()=>{if(phase==='play'||phase==='count')sendSnap()},120);
+  pingTimer=setInterval(netTick,1500);
+}
+function netTick(){
+  const now=performance.now();
+  if(isHost){
+    bcast({t:'p'});
+    players.slice().forEach(p=>{if(p.id!==0&&!p.gone&&now-p.rx>10000)hostDrop(p.id)});
+  }else{
+    send({t:'p'});
+    if(phase!=='dead'&&phase!=='lobby'&&now-lastRx>10000)onDisc();
+  }
+}
+function exitRoom(){
+  try{myRoom&&dirSend({t:'unreg',code:myRoom.code})}catch(e){}
+  try{conn&&conn.close()}catch(e){}
+  try{conns.forEach(c=>{try{c.close()}catch(e){}})}catch(e){}
+  try{peer&&peer.destroy()}catch(e){}
+  setTimeout(()=>location.reload(),120);
+}
+
+/* --- 방장 쪽 --- */
+function mkPlayer(id,name,team){return{id,name:cleanName(name),team,ready:false,alive:true,gone:false,rx:performance.now()}}
+function pickTeam(){
+  const cap=MODES[mode].cap;
+  const c=[0,1].filter(t=>teamCount(t)<cap[t]);
+  if(!c.length)return -1;
+  c.sort((x,y)=>teamCount(x)-teamCount(y)||x-y);
+  return c[0];
+}
+function rosterMsg(){return{t:'roster',mode,players:players.map(p=>({id:p.id,name:p.name,team:p.team,ready:p.ready,alive:p.alive,gone:p.gone}))}}
+function hostRoster(){bcast(rosterMsg());const mp=players.find(p=>p.id===me);myReady=!!(mp&&mp.ready)}
+function hostOpen(c){
+  if(c._ho)return;c._ho=true;
+  const reject=why=>{try{c.send({t:'full',why})}catch(e){}setTimeout(()=>{try{c.close()}catch(e){}},600)};
+  if(inRound)return reject('게임이 진행 중인 방입니다');
+  const team=pickTeam();
+  if(liveCount()>=MAXP||team<0)return reject('이미 가득 찬 방입니다');
+  let id=1;while(players.some(p=>p.id===id))id++;
+  const p=mkPlayer(id,'',team);players.push(p);conns.set(id,c);
+  c.on('data',m=>{if(conns.get(id)!==c)return;p.rx=performance.now();hostHandle(id,m)});
+  c.on('close',()=>{if(conns.get(id)===c)hostDrop(id)});
+  c.on('error',()=>{if(conns.get(id)===c)hostDrop(id)});
+  if(phase==='lobby')enterGame();
+  sendTo(id,{t:'welcome',you:id,mode,hold:holdOn,drop:dropOn});
+  hostRoster();updateRoomReg();
+}
+function hostDrop(id){
+  const p=players.find(x=>x.id===id);if(!p||p.gone)return;
+  const c=conns.get(id);conns.delete(id);try{c&&c.close()}catch(e){}
+  const msg=p.name+' 님이 나갔습니다';
+  bcast({t:'sys',m:msg});sysChat(msg);
+  if(inRound){
+    p.gone=true;
+    if(p.alive){p.alive=false;bcast({t:'dead',i:id})}
+    hostCheckEnd();
+  }else{
+    players=players.filter(x=>x.id!==id);
+    hostRoster();
+  }
+  updateRoomReg();
+}
+function hostHandle(from,m){
+  const p=players.find(x=>x.id===from);
+  if(!p||!m||typeof m!=='object')return;
+  switch(m.t){
+    case'hello':p.name=cleanName(m.name);hostRoster();break;
+    case'r':if(phase==='wait'||phase==='over'){p.ready=!!m.v;hostRoster();checkStart()}break;
+    case'team':if(!inRound&&(phase==='wait'||phase==='over')){
+      const o=1-p.team;
+      if(MODES[mode].cap[o]>teamCount(o)){p.team=o;hostRoster()}
+    }break;
+    case'b':if(typeof m.g==='string'&&m.g.length===200){
+      const sn={g:m.g,s:+m.s||0,l:+m.l||0,p:+m.p||0};
+      snaps[from]=sn;bcast({t:'b',i:from,g:sn.g,s:sn.s,l:sn.l,p:sn.p},from);
+    }break;
+    case'atk':if(inRound&&p.alive)routeAttack(from,Math.min(20,Math.max(0,m.n|0)));break;
+    case'over':hostDead(from);break;
+    case'chat':{
+      const t=String(m.m||'').slice(0,100);if(!t)break;
+      bcast({t:'chat',i:from,m:t},from);
+      if(from!==0)recvChat(from,t);
+    }break;
+  }
+}
+function routeAttack(from,n){
+  if(n<=0)return;
+  const ft=players.find(p=>p.id===from).team;
+  const foes=players.filter(p=>p.alive&&!p.gone&&p.team!==ft);
+  if(!foes.length)return;
+  const t=foes[Math.floor(Math.random()*foes.length)];
+  let k=n;
+  if(startSize[t.team]===1&&startSize[ft]>1)k=Math.max(1,Math.ceil(n/2)); /* 혼자인 쪽은 받는 공격이 줄어듭니다 */
+  if(t.id===0){pending+=k;sfx('warn')}else sendTo(t.id,{t:'atk',n:k});
+}
+function hostDead(id){
+  const p=players.find(x=>x.id===id);
+  if(!inRound||!p||!p.alive)return;
+  p.alive=false;bcast({t:'dead',i:id});hostCheckEnd();
+}
+function hostCheckEnd(){
+  if(!inRound)return;
+  const teams=new Set(players.filter(p=>p.alive&&!p.gone).map(p=>p.team));
+  if(teams.size>1)return;
+  const win=teams.size===1?[...teams][0]:-1;
+  inRound=false;
+  bcast({t:'end',team:win});
+  onEnd(win);
+}
+function checkStart(){
+  if(!isHost||inRound||!(phase==='wait'||phase==='over'))return;
+  const live=players.filter(p=>!p.gone);
+  if(live.length<MAXP||!live.every(p=>p.ready)||teamCount(0)===0||teamCount(1)===0)return;
+  const seed=Math.floor(Math.random()*2**31);
+  startSize=[teamCount(0),teamCount(1)];
+  inRound=true;
+  bcast({t:'start',seed,hold:holdOn,drop:dropOn});
+  startRound(seed);
+  updateRoomReg();
+}
+function startRound(seed){
+  snaps={};
+  players.forEach(p=>{p.alive=true;p.ready=false});
+  init(seed);
+}
+function onEnd(win){
+  if(!(phase==='play'||phase==='count'||phase==='spec'))return;
+  const wasSpec=phase==='spec',won=win===myTeam();
+  if(win>=0)teamWins[win]++;
+  phase='over';
+  endText=win<0?'무승부':(won?'승리! 🎉':'패배…');
+  if(won)sfx('win');else if(!wasSpec&&win>=0)sfx('lose');
+  recordRound(won?'win':'loss');
+  if(isHost){
+    players=players.filter(p=>!p.gone);
+    players.forEach(p=>{p.ready=false;p.alive=true});
+    hostRoster();updateRoomReg();
+  }
+}
+function lose(){
+  if(phase!=='play')return;
+  phase='spec';sendSnap();sfx('lose');emit({t:'over'});
+}
+
+/* --- 손님 쪽 --- */
 function setupConn(c){
   conn=c;
-  c.on('open',()=>{if(c===conn)onConn()});
+  c.on('open',()=>{if(c===conn){enterGame();emit({t:'hello',name:myName()})}});
   c.on('data',m=>{if(c!==conn)return;lastRx=performance.now();onMsg(m)});
   c.on('close',()=>{if(c===conn)onDisc()});
   c.on('error',()=>{if(c===conn)onDisc()});
 }
-function onConn(){
-  blank();
-  $('lobby').style.display='none';$('game').style.display='flex';document.body.classList.add('ingame');layout();setTimeout(layout,100);setTimeout(layout,600);
-  phase='wait';endText='';lastRx=performance.now();
-  if(isHost){sendOpts();setRoomFull(true)}else dirStop();
-  clearInterval(snapTimer);clearInterval(pingTimer);
-  snapTimer=setInterval(()=>{if(phase==='play'||phase==='count')sendSnap()},120);
-  pingTimer=setInterval(()=>send({t:'p'}),1500);
-}
 function onDisc(txt){
   if(phase==='dead'||phase==='lobby')return;
-  endText=txt||'';
-  if(!txt&&(phase==='play'||phase==='count')){myWins++;endText='상대가 나가서 승리!'}
+  endText=txt||'방장과 연결이 끊어졌습니다';
   phase='dead';clearInterval(snapTimer);clearInterval(pingTimer);
-  if(isHost)setRoomFull(false);
   const c=conn;conn=null;try{c&&c.close()}catch(e){}
 }
 function onMsg(m){
-  if(m.t==='r'){oppReady=m.v;checkStart()}
-  else if(m.t==='start'){if(phase==='wait'||phase==='over'){if(!isHost){if(typeof m.hold==='boolean')setHold(m.hold,false);if(typeof m.drop==='boolean')setDrop(m.drop,false)}init(m.seed)}}
-  else if(m.t==='chat'){recvChat(m.m)}
-  else if(m.t==='opt'){if(!isHost){if(typeof m.hold==='boolean')setHold(m.hold,false);if(typeof m.drop==='boolean')setDrop(m.drop,false)}}
-  else if(m.t==='b'){if(typeof m.g==='string'&&m.g.length===200)opp={g:m.g,s:+m.s||0,l:+m.l||0,p:+m.p||0}}
-  else if(m.t==='atk'){pending+=m.n;sfx('warn')}
-  else if(m.t==='over'){if(phase==='play'||phase==='count')win()}
-  else if(m.t==='full'){onDisc('이미 상대가 있는 방입니다')}
-}
-function checkStart(){
-  if(isHost&&myReady&&oppReady&&(phase==='wait'||phase==='over')){
-    const seed=Math.floor(Math.random()*2**31);
-    send({t:'start',seed,hold:holdOn,drop:dropOn});init(seed);
+  if(!m||typeof m!=='object')return;
+  switch(m.t){
+    case'welcome':
+      me=m.you|0;setMode(m.mode);
+      if(typeof m.hold==='boolean')setHold(m.hold,false);
+      if(typeof m.drop==='boolean')setDrop(m.drop,false);
+      break;
+    case'roster':
+      setMode(m.mode);
+      if(Array.isArray(m.players))players=m.players.map(x=>({id:x.id|0,name:cleanName(x.name),team:x.team?1:0,ready:!!x.ready,alive:x.alive!==false,gone:!!x.gone}));
+      {const mp=players.find(p=>p.id===me);myReady=!!(mp&&mp.ready)}
+      break;
+    case'opt':
+      if(typeof m.hold==='boolean')setHold(m.hold,false);
+      if(typeof m.drop==='boolean')setDrop(m.drop,false);
+      break;
+    case'start':
+      if(phase==='wait'||phase==='over'){
+        if(typeof m.hold==='boolean')setHold(m.hold,false);
+        if(typeof m.drop==='boolean')setDrop(m.drop,false);
+        startRound(m.seed|0);
+      }
+      break;
+    case'b':if(m.i!==me&&typeof m.g==='string'&&m.g.length===200)snaps[m.i]={g:m.g,s:+m.s||0,l:+m.l||0,p:+m.p||0};break;
+    case'atk':if(phase==='play'){pending+=m.n|0;sfx('warn')}break;
+    case'dead':{const p=players.find(x=>x.id===m.i);if(p)p.alive=false}break;
+    case'end':onEnd(m.team);break;
+    case'chat':recvChat(m.i,m.m);break;
+    case'sys':sysChat(m.m);break;
+    case'full':onDisc(m.why||'참가할 수 없는 방입니다');break;
   }
 }
 $('readyBtn').onclick=()=>{
   if(phase!=='wait'&&phase!=='over')return;
-  myReady=!myReady;send({t:'r',v:myReady});checkStart();
+  emit({t:'r',v:!myReady});
 };
+$('teamBtn').onclick=()=>{if(phase==='wait'||phase==='over')emit({t:'team'})};
+$('exitBtn').onclick=()=>{if(confirm('방에서 나갈까요?'))exitRoom()};
 
 /* ---------- 방장: 방 만들기 ---------- */
 let hostTries=0,roomTitle='';
+const MODE_HINT={'1v1':'둘이서 1:1로 겨룹니다.','1v2':'방장 혼자 vs 손님 2명 (총 3명). 혼자인 쪽은 받는 공격이 줄어듭니다.','2v2':'2명씩 팀으로 겨룹니다 (총 4명). 입장 후 "팀 바꾸기"로 팀을 고를 수 있어요.'};
+document.querySelectorAll('.mode-tabs button').forEach(b=>b.onclick=()=>{
+  selMode=b.dataset.mode;
+  document.querySelectorAll('.mode-tabs button').forEach(x=>x.classList.toggle('active',x===b));
+  $('modeHint').textContent=MODE_HINT[selMode];
+});
 function inviteText(url){
-  return '🎮 테트리스 1:1 대결 신청!\n'+(url?'아래 링크를 누르면 바로 들어와져요 👇\n'+url:'방 코드: '+roomCode);
+  return '🎮 테트리스 '+MODES[mode].label+' 대결 신청!\n'+(url?'아래 링크를 누르면 바로 들어와져요 👇\n'+url:'방 코드: '+roomCode);
 }
 function inviteUrl(){
   if(location.protocol==='file:'||location.hostname==='localhost')return '';
@@ -631,7 +844,9 @@ async function makeRoom(){
   $('mkRoom').disabled=true;st('연결 도구를 불러오는 중…');
   try{await loadPeerLib()}catch(e){$('mkRoom').disabled=false;return st('연결 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인하고 다시 눌러 주세요.')}
   roomTitle=($('roomTitle').value||'').trim().slice(0,20)||'테트리스 한 판';
-  isHost=true;hostTries=0;openRoom();
+  setMode(selMode);
+  isHost=true;me=0;players=[mkPlayer(0,myName(),0)];conns.clear();inRound=false;
+  hostTries=0;openRoom();
 }
 function openRoom(){
   roomCode=rcode();st('방을 만드는 중…');
@@ -640,6 +855,7 @@ function openRoom(){
     st('');
     $('menu').style.display='none';$('hostView').style.display='block';
     $('codeBig').textContent=roomCode;
+    $('hostNeed').textContent=MODES[mode].label+' 대결 — 총 '+MAXP+'명이 모이면 시작할 수 있어요. 첫 참가자가 들어오면 대기 화면으로 바뀝니다.';
     myRoom={code:roomCode,title:roomTitle,full:false};dirStart();dirSend(regMsg());
     $('hostView').after($('listCard'));renderRooms();
     const url=inviteUrl();
@@ -648,12 +864,8 @@ function openRoom(){
     if(navigator.share)$('shBtn').style.display='inline-block';
   });
   peer.on('connection',c=>{
-    if(conn){
-      c.on('open',()=>{try{c.send({t:'full'})}catch(e){}setTimeout(()=>{try{c.close()}catch(e){}},600)});
-      return;
-    }
-    setupConn(c);
-    setTimeout(()=>{if(c===conn&&!c.open){conn=null;try{c.close()}catch(e){}}},20000);
+    if(c.open)hostOpen(c);else c.on('open',()=>hostOpen(c));
+    setTimeout(()=>{if(!c._ho){try{c.close()}catch(e){}}},20000);
   });
   const hostP=peer;
   hostP.on('disconnected',()=>{try{if(hostP===peer)hostP.reconnect()}catch(e){}});
@@ -676,7 +888,7 @@ $('cpBtn').onclick=async()=>{
 };
 $('shBtn').onclick=()=>{
   const url=inviteUrl();
-  navigator.share({title:'테트리스 대결',text:'🎮 테트리스 1:1 대결 신청!',url:url||undefined}).catch(()=>{});
+  navigator.share({title:'테트리스 대결',text:'🎮 테트리스 '+MODES[mode].label+' 대결 신청!',url:url||undefined}).catch(()=>{});
 };
 
 /* ---------- 손님: 링크/코드로 들어가기 ---------- */
@@ -684,7 +896,7 @@ function jfail(msg){
   $('jMsg').textContent=msg;$('jRetry').style.display='inline-block';
 }
 async function joinRoom(code){
-  isHost=false;roomCode=code;
+  isHost=false;roomCode=code;players=[];me=0;
   $('menu').style.display='none';$('hostView').style.display='none';$('listCard').style.display='none';$('joinView').style.display='block';
   $('jCode').textContent=code;$('jRetry').style.display='none';
   $('jMsg').textContent='방장에게 연결하고 있습니다. 잠시만 기다려 주세요.';
@@ -711,9 +923,11 @@ $('joinBtn').onclick=()=>{
 };
 $('codeIn').addEventListener('keydown',e=>{if(e.key==='Enter')$('joinBtn').click()});
 
-addEventListener('pagehide',()=>{try{myRoom&&dirSend({t:'unreg',code:myRoom.code})}catch(e){}try{conn&&conn.close()}catch(e){}try{peer&&peer.destroy()}catch(e){}});
-document.addEventListener('visibilitychange',()=>{lastRx=performance.now();
-  if(document.visibilityState==='visible'){if(dirStarted)dirPoll();try{AC&&AC.resume()}catch(e){}}else{try{AC&&AC.suspend()}catch(e){}}
+addEventListener('pagehide',()=>{try{myRoom&&dirSend({t:'unreg',code:myRoom.code})}catch(e){}try{conn&&conn.close()}catch(e){}try{conns.forEach(c=>{try{c.close()}catch(e){}})}catch(e){}try{peer&&peer.destroy()}catch(e){}});
+document.addEventListener('visibilitychange',()=>{
+  const n=performance.now();lastRx=n;players.forEach(p=>p.rx=n);
+  if(document.visibilityState==='visible'){if(dirStarted)dirPoll();try{AC&&AC.resume()}catch(e){}}
+  else{try{AC&&AC.suspend()}catch(e){}}
 });
 
 /* ---------- 방 목록 ----------
@@ -722,16 +936,22 @@ document.addEventListener('visibilitychange',()=>{lastRx=performance.now();
 const DIR_URL='https://ntfy.sh/wtetris2p-rooms-k8x3q7';
 let dirStarted=false,dirStopped=false,dirState='connecting',dirErr='',dirT0=Date.now(),myRoom=null,rooms=[],lastRoomsKey='';
 const okCode=c=>typeof c==='string'&&/^[A-Z0-9]{4,12}$/.test(c);
-function regMsg(){return{t:'reg',code:myRoom.code,title:myRoom.title,full:myRoom.full}}
+function regMsg(){return{t:'reg',code:myRoom.code,title:myRoom.title,full:myRoom.full,mode,n:players.filter(p=>!p.gone).length,max:MAXP}}
 function dirSend(o){try{fetch(DIR_URL,{method:'POST',body:JSON.stringify(o),keepalive:true}).catch(()=>{})}catch(e){}}
 function leaveMyRoom(){
   try{if(myRoom)dirSend({t:'unreg',code:myRoom.code})}catch(e){}
   myRoom=null;
+  try{conns.forEach(c=>{try{c.close()}catch(e){}})}catch(e){}
+  conns.clear();players=[];
   const c=conn;conn=null;try{c&&c.close()}catch(e){}
   try{peer&&peer.destroy()}catch(e){}
   peer=null;isHost=false;
 }
-function setRoomFull(f){if(myRoom){myRoom.full=f;dirSend(regMsg())}}
+function updateRoomReg(){
+  if(!myRoom)return;
+  myRoom.full=inRound||players.filter(p=>!p.gone).length>=MAXP;
+  dirSend(regMsg());
+}
 function dirStop(){dirStopped=true}
 async function dirPoll(){
   if(dirStopped)return;
@@ -746,10 +966,10 @@ async function dirPoll(){
       if(e.event!=='message')return;
       let m;try{m=JSON.parse(e.message)}catch(_){return}
       if(!m||!okCode(m.code))return;
-      map.set(m.code,{t:m.t,title:String(m.title||'').slice(0,20),full:!!m.full,time:e.time});
+      map.set(m.code,{t:m.t,title:String(m.title||'').slice(0,20),full:!!m.full,mode:String(m.mode||'1v1'),n:+m.n||0,max:+m.max||2,time:e.time});
     });
     const out=[];
-    map.forEach((v,code)=>{if(v.t==='reg'&&now-v.time<240)out.push({code,title:v.title,full:v.full})});
+    map.forEach((v,code)=>{if(v.t==='reg'&&now-v.time<240)out.push({code,title:v.title,full:v.full,mode:v.mode,n:v.n,max:v.max})});
     rooms=out.slice(0,50);dirState='ok';dirErr='';
   }catch(e){dirState='fail';dirErr=String(e&&e.message||e).slice(0,40)}
   renderRooms();
@@ -764,7 +984,7 @@ function dirStart(){
 function renderRooms(){
   const box=$('rl'),st=$('rlSt');
   const list=rooms.filter(r=>!(myRoom&&r.code===myRoom.code));
-  if(myRoom)list.unshift({code:myRoom.code,title:myRoom.title,full:myRoom.full,mine:true});
+  if(myRoom)list.unshift({code:myRoom.code,title:myRoom.title,full:myRoom.full,mine:true,mode,n:players.filter(p=>!p.gone).length,max:MAXP});
   const key=JSON.stringify(list);
   if(key!==lastRoomsKey){
     lastRoomsKey=key;
@@ -773,7 +993,7 @@ function renderRooms(){
       const d=document.createElement('div');d.className='ri';
       const t=document.createElement('div');t.className='t';
       const n=document.createElement('div');n.className='n';n.textContent=r.title||'테트리스 한 판';
-      const c=document.createElement('div');c.className='c';c.textContent='방 코드 '+r.code+' · '+(r.full?'게임 중':'대기 중');
+      const c=document.createElement('div');c.className='c';c.textContent='방 코드 '+r.code+' · '+((MODES[r.mode]||MODES['1v1']).label)+(r.max?' · '+r.n+'/'+r.max+'명':'')+' · '+(r.full?(r.max&&r.n>=r.max?'가득 참':'게임 중'):'대기 중');
       if(r.mine){d.style.borderColor='var(--ac)';n.textContent='⭐ '+n.textContent+' (내 방)'}
       t.appendChild(n);t.appendChild(c);
       const b=document.createElement('button');
@@ -819,19 +1039,22 @@ function setChat(on){
 function sendChat(text){
   text=(text||'').trim().slice(0,100);
   if(!text)return;
-  if(!conn||!conn.open){addChat('op','(연결이 끊어져 보낼 수 없습니다)');return}
-  send({t:'chat',m:text});addChat('me',text);
+  if(!isHost&&(!conn||!conn.open)){addChat('op','(연결이 끊어져 보낼 수 없습니다)');return}
+  emit({t:'chat',m:text});addChat('me',text);
 }
-function recvChat(text){
+function nameOf(i){const p=players.find(x=>x.id===i);return p?p.name:'상대'}
+function recvChat(i,text){
   if(typeof text!=='string')return;
   text=text.slice(0,100);
-  addChat('op',text);
+  const line=nameOf(i)+': '+text;
+  addChat('op',line);
   if(!chatIsOpen()){
     unread++;updBadge();
-    const t=$('chatToast');t.textContent='상대: '+text;t.style.display='block';
+    const t=$('chatToast');t.textContent=line;t.style.display='block';
     clearTimeout(toastT);toastT=setTimeout(()=>{t.style.display='none'},4000);
   }
 }
+function sysChat(t){addChat('op','※ '+String(t||'').slice(0,60))}
 $('chatBtn').onclick=()=>setChat(!chatIsOpen());
 $('chatX').onclick=()=>setChat(false);
 $('chatSend').onclick=()=>{sendChat($('chatIn').value);$('chatIn').value=''};
@@ -864,7 +1087,7 @@ function setDrop(on,save){
   document.body.classList.toggle('nodrop',!on);
   if(save){try{localStorage.setItem('tetrisDrop',on?'1':'0')}catch(e){}}
 }
-function sendOpts(){send({t:'opt',hold:holdOn,drop:dropOn})}
+function sendOpts(){bcast({t:'opt',hold:holdOn,drop:dropOn})}
 $('dropChk').onchange=e=>{
   if(!isHost||phase==='play'||phase==='count'){e.target.checked=dropOn;return}
   setDrop(e.target.checked,true);
@@ -958,6 +1181,35 @@ function drawMini(c,t,ox,oy,s){
   const m=SHAPES[t];
   m.forEach((r,j)=>r.forEach((v,i)=>{if(v){c.fillStyle=COLORS[v];c.fillRect(ox+i*s+1,oy+j*s+1,s-2,s-2)}}));
 }
+let oppKey='';
+function syncOpps(){
+  const L=players.filter(p=>p.id!==me),mt=myTeam();
+  const key=me+'|'+mt+'|'+L.map(p=>p.id+':'+p.team+':'+(p.alive?1:0)+':'+p.name).join(',');
+  if(key===oppKey)return;
+  oppKey=key;
+  const box=$('opps');box.textContent='';
+  box.dataset.k=String(Math.min(3,Math.max(1,L.length)));
+  $('oppLbl').style.display=L.length>1?'none':'block';
+  L.forEach(p=>{
+    const w=document.createElement('div');w.className='op '+(p.team===mt?'ally':'foe')+(p.alive?'':' dead');w.dataset.id=String(p.id);
+    const n=document.createElement('div');n.className='opn';n.textContent=(p.team===mt?'🟢 ':'🔴 ')+p.name+(p.alive?'':' ✖');
+    const c=document.createElement('canvas');c.width=150;c.height=300;
+    const i=document.createElement('div');i.className='opi';
+    w.append(n,c,i);box.appendChild(w);
+  });
+}
+function drawOpps(){
+  syncOpps();
+  const k=Number($('opps').dataset.k)||1;
+  $('opps').querySelectorAll('.op').forEach(w=>{
+    const sn=snaps[+w.dataset.id],c=w.querySelector('canvas').getContext('2d');
+    if(!c)return;
+    c.clearRect(0,0,150,300);
+    if(sn)for(let i=0;i<200;i++){const v=+sn.g[i];if(v)cellDraw(c,i%W,Math.floor(i/W),15,v)}
+    const t=sn?(k>1?sn.s+'점':'점수 '+sn.s+'\n줄 '+sn.l+' · 공격 '+sn.p):'';
+    const e=w.querySelector('.opi');if(e.textContent!==t)e.textContent=t;
+  });
+}
 function draw(){
   const c=$('cv').getContext('2d');
   c.clearRect(0,0,300,600);
@@ -974,20 +1226,28 @@ function draw(){
   if(hold)drawMini(h,hold,hold==='I'?0:10,hold==='I'?-5:5,hold==='I'?20:18);
   const n=$('nc').getContext('2d');n.clearRect(0,0,80,180);
   queue.slice(0,3).forEach((t,k)=>drawMini(n,t,t==='I'?0:10,k*60+(t==='I'?-5:5),t==='I'?20:18));
-  const o=$('oc').getContext('2d');o.clearRect(0,0,150,300);
-  for(let i=0;i<200;i++){const v=+opp.g[i];if(v)cellDraw(o,i%W,Math.floor(i/W),15,v)}
+  drawOpps();
   $('bar').style.height=Math.min(100,pending/H*100)+'%';
   $('myInfo').textContent=`점수 ${score} · 줄 ${lines}\nLv ${level} · 받을 공격 ${pending}`+(combo>0?` · 콤보 ${combo}`:'');
-  $('opInfo').textContent=`점수 ${opp.s}\n줄 ${opp.l} · 공격 ${opp.p}`;
-  $('score').textContent=`나 ${myWins} : ${oppWins} 상대`;
+  $('score').textContent=`${mode==='1v1'?'나':'우리'} ${teamWins[myTeam()]} : ${teamWins[1-myTeam()]} 상대`;
 }
 function ui(now){
   let t='';
-  const rdy=(myReady?'상대를 기다리는 중…':'준비를 누르세요')+(oppReady?'\n(상대 준비 완료)':'');
-  if(phase==='wait')t='연결되었습니다!\n'+rdy;
-  else if(phase==='over')t=endText+'\n'+rdy;
+  const need=liveCount()<MAXP;
+  const rdy=need?(isHost?'참가자를 기다리는 중…\n방 코드 '+roomCode:'다른 참가자를 기다리는 중…'):(myReady?'모두 준비되길 기다리는 중…':'준비를 누르세요');
+  const roster=()=>{
+    const L=[MODES[mode].label+' 대결 · '+liveCount()+'/'+MAXP+'명'];
+    [0,1].forEach(tm=>{
+      const ps=players.filter(p=>p.team===tm&&!p.gone);
+      L.push((tm?'B팀: ':'A팀: ')+(ps.map(p=>(p.id===me?'★':'')+p.name+(p.ready?'✔':'')).join(', ')||'(빈 자리)'));
+    });
+    return L.join('\n');
+  };
+  if(phase==='wait')t='연결되었습니다!\n'+roster()+'\n'+rdy;
+  else if(phase==='over')t=endText+'\n'+roster()+'\n'+rdy;
   else if(phase==='count')t=String(Math.max(1,Math.ceil((countEnd-now)/1000)));
-  else if(phase==='dead')t=(endText||'연결이 끊어졌습니다')+'\n'+(isHost?'같은 링크로 상대가 다시 들어오면\n이어서 할 수 있어요':'페이지를 새로고침하면\n다시 들어갑니다');
+  else if(phase==='spec')t='탈락!\n경기가 끝날 때까지\n기다려 주세요';
+  else if(phase==='dead')t=(endText||'연결이 끊어졌습니다')+'\n\'나가기\'를 눌러\n처음 화면으로 돌아가세요';
   const m=$('msg');
   m.style.display=t?'flex':'none';
   if(m.textContent!==t)m.textContent=t;
@@ -1002,6 +1262,10 @@ function ui(now){
   const b=$('readyBtn');
   b.disabled=!(phase==='wait'||phase==='over');
   b.textContent=myReady?'준비 취소':(phase==='over'?'다시 하기':'준비');
+  const tb=$('teamBtn'),ot=1-myTeam();
+  tb.style.display=mode==='1v1'?'none':'inline-block';
+  tb.disabled=!((phase==='wait'||phase==='over')&&MODES[mode].cap[ot]>teamCount(ot));
+  tb.textContent='팀 바꾸기 ('+(myTeam()?'B→A':'A→B')+')';
 }
 
 /* ---------- 메인 루프 ---------- */
@@ -1018,10 +1282,9 @@ function loop(ts){
   requestAnimationFrame(loop);
   try{
     const dt=Math.min(100,ts-last);last=ts;
-    if((phase==='play'||phase==='count')&&performance.now()-lastRx>10000)onDisc();
     if(phase==='count'){const cn=Math.ceil((countEnd-ts)/1000);if(cn!==lastCnt&&cn>0){lastCnt=cn;sfx('beep')}}
     if(phase==='count'&&ts>=countEnd){phase='play';dropT=0;lockT=0;sfx('go')}
-    if(bgmOn&&(phase==='play'||phase==='count')){if(!bgmRun)bgmStart()}else if(bgmRun)bgmStop();
+    if(bgmOn&&(phase==='play'||phase==='count'||phase==='spec')){if(!bgmRun)bgmStart()}else if(bgmRun)bgmStop();
     if(phase==='play'&&!pc&&queue.length){ /* 복구: 블록이 없으면 새로 생성 */
       const t=queue.shift();fillQ();if(!spawn(t))lose();
     }
